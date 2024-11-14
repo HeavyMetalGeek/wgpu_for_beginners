@@ -1,3 +1,7 @@
+pub mod pipeline;
+
+use pipeline::Pipeline;
+
 use winit::{
     dpi::PhysicalSize,
     event::*,
@@ -18,6 +22,7 @@ struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
     window: &'a Window,
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl<'a> State<'a> {
@@ -25,7 +30,7 @@ impl<'a> State<'a> {
         let size = window.inner_size();
 
         let instance_descriptor = wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: wgpu::Backends::PRIMARY,
             ..Default::default()
         };
 
@@ -39,10 +44,10 @@ impl<'a> State<'a> {
         };
         let adapter = instance.request_adapter(&adapter_descriptor).await.unwrap();
         let device_descriptor = wgpu::DeviceDescriptor {
+            label: Some("Device"),
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
-            label: Some("Device"),
-            memory_hints: wgpu::MemoryHints::Performance,
+            memory_hints: Default::default(),
         };
         let (device, queue) = adapter
             .request_device(&device_descriptor, None)
@@ -61,12 +66,15 @@ impl<'a> State<'a> {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Mailbox,
+            present_mode: surface_capabilities.present_modes[0],
             alpha_mode: surface_capabilities.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &config);
+
+        let render_pipeline = Pipeline::new("shader.wgsl", "vs_main", "fs_main")
+            .set_pixel_format(config.format)
+            .build_pipeline(&device);
 
         Self {
             window,
@@ -75,6 +83,7 @@ impl<'a> State<'a> {
             queue,
             config,
             size,
+            render_pipeline,
         }
     }
 
@@ -104,9 +113,9 @@ impl<'a> State<'a> {
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color {
-                    r: 18.0 / 255.0,
-                    g: 18.0 / 255.0,
-                    b: 18.0 / 255.0,
+                    r: 0.1,
+                    g: 0.2,
+                    b: 0.3,
                     a: 1.0,
                 }),
                 store: wgpu::StoreOp::Store,
@@ -120,7 +129,13 @@ impl<'a> State<'a> {
             occlusion_query_set: None,
             timestamp_writes: None,
         };
-        command_encoder.begin_render_pass(&render_pass_descriptor);
+
+        {
+            let mut render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
+        }
+
         self.queue.submit(std::iter::once(command_encoder.finish()));
 
         drawable.present();
